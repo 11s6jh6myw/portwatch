@@ -1,4 +1,4 @@
-// Package config loads and validates portwatch runtime configuration.
+// Package config handles loading and validating portwatch configuration.
 package config
 
 import (
@@ -10,58 +10,62 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds all runtime settings for portwatch.
+// Config holds the full portwatch runtime configuration.
 type Config struct {
 	// ScanInterval is how often the port scanner runs.
 	ScanInterval time.Duration `yaml:"scan_interval"`
 
-	// Ports lists the TCP ports to monitor. An empty list means all ports
-	// in the range 1–65535 are scanned.
-	Ports []int `yaml:"ports"`
+	// Ports is the list of TCP ports to monitor.
+	Ports []uint16 `yaml:"ports"`
 
-	// AlertFormat controls how change notifications are rendered.
-	// Accepted values: "text", "json".
+	// AlertFormat controls alert output: "text" or "json".
 	AlertFormat string `yaml:"alert_format"`
 
-	// StateFile is the path used to persist scan snapshots.
+	// AlertOutput is the file path for alerts; empty means stdout.
+	AlertOutput string `yaml:"alert_output"`
+
+	// StateFile is the path where port snapshots are persisted.
 	StateFile string `yaml:"state_file"`
+
+	// ExcludePorts lists ports or ranges to ignore (e.g. "22", "8000-9000").
+	ExcludePorts []string `yaml:"exclude_ports"`
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.
-func DefaultConfig() Config {
-	return Config{
+func DefaultConfig() *Config {
+	return &Config{
 		ScanInterval: 30 * time.Second,
 		AlertFormat:  "text",
-		StateFile:    "/tmp/portwatch_state.json",
+		StateFile:    "/tmp/portwatch.state.json",
+		Ports:        []uint16{},
+		ExcludePorts: []string{},
 	}
 }
 
-// Load reads a YAML configuration file from path and merges it with
-// DefaultConfig, then validates the result.
-func Load(path string) (Config, error) {
+// Load reads a YAML config file from path, merges it over defaults,
+// and validates the result.
+func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return cfg, nil
-		}
-		return cfg, fmt.Errorf("reading config: %w", err)
+		return nil, fmt.Errorf("config: read %q: %w", path, err)
 	}
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parsing config: %w", err)
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 
 	if err := validate(cfg); err != nil {
-		return cfg, err
+		return nil, fmt.Errorf("config: invalid: %w", err)
 	}
+
 	return cfg, nil
 }
 
-func validate(cfg Config) error {
+func validate(cfg *Config) error {
 	if cfg.ScanInterval < time.Second {
-		return fmt.Errorf("scan_interval must be at least 1s, got %s", cfg.ScanInterval)
+		return errors.New("scan_interval must be at least 1s")
 	}
 	switch cfg.AlertFormat {
 	case "text", "json":
