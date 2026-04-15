@@ -1,6 +1,8 @@
+// Package config loads and validates portwatch runtime configuration.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -8,57 +10,66 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the portwatch daemon configuration.
+// Config holds all runtime settings for portwatch.
 type Config struct {
+	// ScanInterval is how often the port scanner runs.
 	ScanInterval time.Duration `yaml:"scan_interval"`
-	Ports        []int         `yaml:"ports"`
-	AlertFormat  string        `yaml:"alert_format"`
-	LogFile      string        `yaml:"log_file"`
+
+	// Ports lists the TCP ports to monitor. An empty list means all ports
+	// in the range 1–65535 are scanned.
+	Ports []int `yaml:"ports"`
+
+	// AlertFormat controls how change notifications are rendered.
+	// Accepted values: "text", "json".
+	AlertFormat string `yaml:"alert_format"`
+
+	// StateFile is the path used to persist scan snapshots.
+	StateFile string `yaml:"state_file"`
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.
-func DefaultConfig() *Config {
-	return &Config{
+func DefaultConfig() Config {
+	return Config{
 		ScanInterval: 30 * time.Second,
-		Ports:        []int{},
 		AlertFormat:  "text",
-		LogFile:      "",
+		StateFile:    "/tmp/portwatch_state.json",
 	}
 }
 
-// Load reads a YAML config file from the given path and returns a Config.
-// Fields not present in the file retain their default values.
-func Load(path string) (*Config, error) {
+// Load reads a YAML configuration file from path and merges it with
+// DefaultConfig, then validates the result.
+func Load(path string) (Config, error) {
 	cfg := DefaultConfig()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("config: reading file %q: %w", path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("reading config: %w", err)
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("config: parsing yaml: %w", err)
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("config: validation: %w", err)
+	if err := validate(cfg); err != nil {
+		return cfg, err
 	}
-
 	return cfg, nil
 }
 
-// validate checks that Config fields are within acceptable ranges.
-func (c *Config) validate() error {
-	if c.ScanInterval < time.Second {
-		return fmt.Errorf("scan_interval must be at least 1s, got %s", c.ScanInterval)
+func validate(cfg Config) error {
+	if cfg.ScanInterval < time.Second {
+		return fmt.Errorf("scan_interval must be at least 1s, got %s", cfg.ScanInterval)
 	}
-	if c.AlertFormat != "text" && c.AlertFormat != "json" {
-		return fmt.Errorf("alert_format must be \"text\" or \"json\", got %q", c.AlertFormat)
+	switch cfg.AlertFormat {
+	case "text", "json":
+	default:
+		return fmt.Errorf("alert_format must be \"text\" or \"json\", got %q", cfg.AlertFormat)
 	}
-	for _, p := range c.Ports {
-		if p < 1 || p > 65535 {
-			return fmt.Errorf("port %d is out of valid range (1-65535)", p)
-		}
+	if cfg.StateFile == "" {
+		return errors.New("state_file must not be empty")
 	}
 	return nil
 }
