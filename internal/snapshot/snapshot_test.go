@@ -41,6 +41,18 @@ func TestSummary_ContainsExpectedFields(t *testing.T) {
 	}
 }
 
+func TestSummary_EmptyPorts(t *testing.T) {
+	snap := snapshot.New("emptyhost", nil)
+	summary := snap.Summary()
+
+	if !strings.Contains(summary, "emptyhost") {
+		t.Errorf("summary missing hostname: %q", summary)
+	}
+	if !strings.Contains(summary, "0 open port(s)") {
+		t.Errorf("summary missing zero port count: %q", summary)
+	}
+}
+
 func TestPortSet_ReturnsMapByPort(t *testing.T) {
 	ports := []scanner.PortInfo{makePort(22), makePort(80), makePort(443)}
 	snap := snapshot.New("localhost", ports)
