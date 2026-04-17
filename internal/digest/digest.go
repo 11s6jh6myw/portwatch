@@ -36,6 +36,20 @@ func Equal(a, b Digest) bool {
 	return a == b
 }
 
+// String returns the underlying hex string of the digest.
+func (d Digest) String() string {
+	return string(d)
+}
+
+// Short returns the first 8 characters of the digest, useful for
+// compact display in logs or CLI output.
+func (d Digest) Short() string {
+	if len(d) <= 8 {
+		return string(d)
+	}
+	return string(d[:8])
+}
+
 func portKey(p scanner.PortInfo) string {
 	return fmt.Sprintf("%s:%d", p.Protocol, p.Port)
 }
