@@ -62,3 +62,17 @@ func (c *Collector) Snapshot() Snapshot {
 		UptimeSeconds: time.Since(c.startedAt).Seconds(),
 	}
 }
+
+// Reset clears all accumulated counters and resets the start time to now.
+// It is intended for use in tests or when the daemon is restarted without
+// creating a new Collector instance.
+func (c *Collector) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.scansTotal = 0
+	c.alertsTotal = 0
+	c.openPorts = 0
+	c.lastScanAt = time.Time{}
+	c.lastScanDur = 0
+	c.startedAt = time.Now()
+}
