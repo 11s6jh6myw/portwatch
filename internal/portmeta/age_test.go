@@ -41,6 +41,14 @@ func TestClassifyAge_ZeroTime(t *testing.T) {
 	}
 }
 
+func TestClassifyAge_BoundaryFreshToShortLived(t *testing.T) {
+	// Exactly at the boundary between fresh and short-lived (1 hour).
+	now := time.Now()
+	if got := ClassifyAge(now.Add(-1*time.Hour), now); got != AgeShortLived {
+		t.Fatalf("expected short-lived at 1h boundary, got %s", got)
+	}
+}
+
 func TestAgeAnnotator_SetsAgeClass(t *testing.T) {
 	now := time.Now()
 	a := &AgeAnnotator{now: func() time.Time { return now }}
