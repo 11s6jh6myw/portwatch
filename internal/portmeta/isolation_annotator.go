@@ -1,52 +1,64 @@
 package portmeta
 
-import "github.com/iamcalledrob/portwatch/internal/scanner"
+import (
+	"time"
 
-const isolationKey = "isolation"
+	"github.com/user/portwatch/internal/scanner"
+)
 
-// NewIsolationAnnotator returns an annotator that sets the "isolation" metadata
-// key on each port based on its peer set.
-func NewIsolationAnnotator(peers []scanner.PortInfo) func([]scanner.PortInfo) []scanner.PortInfo {
-	return func(ports []scanner.PortInfo) []scanner.PortInfo {
-		out := make([]scanner.PortInfo, len(ports))
-		for i, p := range ports {
-			level := IsolationFor(p, peers)
-			if p.Meta == nil {
-				p.Meta = make(map[string]string)
-			}
-			p.Meta[isolationKey] = level.String()
-			out[i] = p
-		}
-		return out
-	}
+// IsolationAnnotator enriches PortInfo metadata with isolation level.
+type IsolationAnnotator struct {
+	peers     []scanner.PortInfo
+	firstSeen map[uint16]time.Time
 }
 
-// FilterByMinIsolation returns only ports whose recorded isolation level is at
-// least min. Ports with no isolation metadata are passed through unchanged.
+// NewIsolationAnnotator returns an annotator that uses peers as the context
+// population and firstSeen to determine port age.
+func NewIsolationAnnotator(peers []scanner.PortInfo, firstSeen map[uint16]time.Time) *IsolationAnnotator {
+	if firstSeen == nil {
+		firstSeen = make(map[uint16]time.Time)
+	}
+	return &IsolationAnnotator{peers: peers, firstSeen: firstSeen}
+}
+
+// Annotate sets the "isolation" metadata key on each port.
+func (a *IsolationAnnotator) Annotate(ports []scanner.PortInfo) []scanner.PortInfo {
+	out := make([]scanner.PortInfo, len(ports))
+	for i, p := range ports {
+		fs := a.firstSeen[p.Port]
+		level := IsolationFor(p, a.peers, fs)
+		if p.Meta == nil {
+			p.Meta = make(map[string]string)
+		}
+		p.Meta["isolation"] = level.String()
+		out[i] = p
+	}
+	return out
+}
+
+// FilterByMinIsolation returns only ports whose isolation level is >= min.
 func FilterByMinIsolation(ports []scanner.PortInfo, min IsolationLevel) []scanner.PortInfo {
 	var out []scanner.PortInfo
 	for _, p := range ports {
-		if p.Meta == nil {
+		val, ok := p.Meta["isolation"]
+		if !ok {
 			out = append(out, p)
 			continue
 		}
-		level := parseIsolation(p.Meta[isolationKey])
+		var level IsolationLevel
+		switch val {
+		case "high":
+			level = IsolationHigh
+		case "medium":
+			level = IsolationMedium
+		case "low":
+			level = IsolationLow
+		default:
+			level = IsolationNone
+		}
 		if level >= min {
 			out = append(out, p)
 		}
 	}
 	return out
-}
-
-func parseIsolation(s string) IsolationLevel {
-	switch s {
-	case "low":
-		return IsolationLow
-	case "medium":
-		return IsolationMedium
-	case "high":
-		return IsolationHigh
-	default:
-		return IsolationNone
-	}
 }

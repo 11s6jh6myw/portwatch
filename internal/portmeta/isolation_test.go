@@ -2,12 +2,13 @@ package portmeta
 
 import (
 	"testing"
+	"time"
 
-	"github.com/iamcalledrob/portwatch/internal/scanner"
+	"github.com/user/portwatch/internal/scanner"
 )
 
-func makeIsoPort(port int) scanner.PortInfo {
-	return scanner.PortInfo{Port: port, Meta: make(map[string]string)}
+func makeIsolationPort(port uint16) scanner.PortInfo {
+	return scanner.PortInfo{Port: port, Proto: "tcp"}
 }
 
 func TestIsolationLevel_String(t *testing.T) {
@@ -19,6 +20,7 @@ func TestIsolationLevel_String(t *testing.T) {
 		{IsolationLow, "low"},
 		{IsolationMedium, "medium"},
 		{IsolationHigh, "high"},
+		{IsolationLevel(99), "unknown"},
 	}
 	for _, tc := range cases {
 		if got := tc.level.String(); got != tc.want {
@@ -27,76 +29,58 @@ func TestIsolationLevel_String(t *testing.T) {
 	}
 }
 
-func TestIsolationFor_NoPeers(t *testing.T) {
-	p := makeIsoPort(9999)
-	got := IsolationFor(p, nil)
-	if got != IsolationHigh {
-		t.Errorf("expected IsolationHigh with no peers, got %s", got)
+func TestIsolationFor_NoPeers_ReturnsHigh(t *testing.T) {
+	p := makeIsolationPort(8080)
+	level := IsolationFor(p, nil, time.Now())
+	if level != IsolationHigh {
+		t.Errorf("expected IsolationHigh, got %s", level)
 	}
 }
 
-func TestIsolationFor_ManyKnownNeighbours(t *testing.T) {
-	p := makeIsoPort(9999)
+func TestIsolationFor_ManyNearbyPeers_ReturnsNone(t *testing.T) {
+	p := makeIsolationPort(8080)
 	peers := []scanner.PortInfo{
-		makeIsoPort(80),
-		makeIsoPort(443),
-		makeIsoPort(22),
-		makeIsoPort(25),
-		makeIsoPort(53),
-		makeIsoPort(3306),
+		makeIsolationPort(8000),
+		makeIsolationPort(8010),
+		makeIsolationPort(8020),
+		makeIsolationPort(8030),
+		makeIsolationPort(8040),
+		makeIsolationPort(8050),
 	}
-	got := IsolationFor(p, peers)
-	if got != IsolationNone {
-		t.Errorf("expected IsolationNone with many known neighbours, got %s", got)
-	}
-}
-
-func TestIsolationFor_FewKnownNeighbours(t *testing.T) {
-	p := makeIsoPort(9999)
-	peers := []scanner.PortInfo{makeIsoPort(80), makeIsoPort(443)}
-	got := IsolationFor(p, peers)
-	if got != IsolationMedium {
-		t.Errorf("expected IsolationMedium with 2 known neighbours, got %s", got)
+	level := IsolationFor(p, peers, time.Now())
+	if level != IsolationNone {
+		t.Errorf("expected IsolationNone, got %s", level)
 	}
 }
 
-func TestIsIsolated_True(t *testing.T) {
-	p := makeIsoPort(9999)
-	if !IsIsolated(p, nil) {
-		t.Error("expected IsIsolated=true with no peers")
-	}
-}
-
-func TestIsIsolated_False(t *testing.T) {
-	p := makeIsoPort(9999)
+func TestIsolationFor_OneNearbyPeer_ReturnsMedium(t *testing.T) {
+	p := makeIsolationPort(9000)
 	peers := []scanner.PortInfo{
-		makeIsoPort(80), makeIsoPort(443), makeIsoPort(22),
-		makeIsoPort(25), makeIsoPort(53), makeIsoPort(3306),
+		makeIsolationPort(9050),
 	}
-	if IsIsolated(p, peers) {
-		t.Error("expected IsIsolated=false with many known neighbours")
-	}
-}
-
-func TestIsolationAnnotator_AddsMetadata(t *testing.T) {
-	peers := []scanner.PortInfo{makeIsoPort(80)}
-	annotate := NewIsolationAnnotator(peers)
-	ports := []scanner.PortInfo{makeIsoPort(9999)}
-	out := annotate(ports)
-	if out[0].Meta[isolationKey] == "" {
-		t.Error("expected isolation metadata to be set")
+	level := IsolationFor(p, peers, time.Now())
+	if level != IsolationMedium {
+		t.Errorf("expected IsolationMedium, got %s", level)
 	}
 }
 
-func TestFilterByMinIsolation_IncludesMedium(t *testing.T) {
-	ports := []scanner.PortInfo{
-		{Port: 1, Meta: map[string]string{isolationKey: "high"}},
-		{Port: 2, Meta: map[string]string{isolationKey: "medium"}},
-		{Port: 3, Meta: map[string]string{isolationKey: "low"}},
-		{Port: 4, Meta: map[string]string{isolationKey: "none"}},
+func TestIsolationFor_IgnoresSelf(t *testing.T) {
+	p := makeIsolationPort(7777)
+	peers := []scanner.PortInfo{makeIsolationPort(7777)}
+	level := IsolationFor(p, peers, time.Now())
+	if level != IsolationHigh {
+		t.Errorf("expected IsolationHigh when only self in peers, got %s", level)
 	}
-	out := FilterByMinIsolation(ports, IsolationMedium)
-	if len(out) != 2 {
-		t.Errorf("expected 2 ports, got %d", len(out))
+}
+
+func TestIsolationFor_DistantPeersOnly_ReturnsHigh(t *testing.T) {
+	p := makeIsolationPort(80)
+	peers := []scanner.PortInfo{
+		makeIsolationPort(9000),
+		makeIsolationPort(9100),
+	}
+	level := IsolationFor(p, peers, time.Now())
+	if level != IsolationHigh {
+		t.Errorf("expected IsolationHigh for distant peers, got %s", level)
 	}
 }

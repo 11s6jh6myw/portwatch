@@ -1,15 +1,19 @@
 package portmeta
 
-import "github.com/iamcalledrob/portwatch/internal/scanner"
+import (
+	"time"
 
-// IsolationLevel describes how isolated a port is from other services.
+	"github.com/user/portwatch/internal/scanner"
+)
+
+// IsolationLevel describes how isolated a port is from other active ports.
 type IsolationLevel int
 
 const (
-	IsolationNone    IsolationLevel = iota // co-located with many known services
-	IsolationLow                           // shares address space with a few services
-	IsolationMedium                        // loosely grouped
-	IsolationHigh                          // no known co-located services
+	IsolationNone    IsolationLevel = iota // port has many neighbours
+	IsolationLow                           // a few nearby ports are open
+	IsolationMedium                        // sparse neighbourhood
+	IsolationHigh                          // stands alone in its range
 )
 
 func (l IsolationLevel) String() string {
@@ -27,37 +31,31 @@ func (l IsolationLevel) String() string {
 	}
 }
 
-// IsolationFor returns the IsolationLevel for a port given the full set of
-// currently open ports. A port is considered more isolated when fewer
-// well-known neighbours share the same host.
-func IsolationFor(p scanner.PortInfo, peers []scanner.PortInfo) IsolationLevel {
-	if len(peers) == 0 {
-		return IsolationHigh
-	}
-
-	knownNeighbours := 0
+// IsolationFor returns how isolated port p is given the full set of currently
+// open ports and the time the port was first seen.
+func IsolationFor(p scanner.PortInfo, peers []scanner.PortInfo, firstSeen time.Time) IsolationLevel {
+	neighbours := 0
 	for _, peer := range peers {
 		if peer.Port == p.Port {
 			continue
 		}
-		if _, ok := wellKnownPorts[peer.Port]; ok {
-			knownNeighbours++
+		diff := int(p.Port) - int(peer.Port)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff <= 100 {
+			neighbours++
 		}
 	}
 
 	switch {
-	case knownNeighbours == 0:
+	case neighbours == 0:
 		return IsolationHigh
-	case knownNeighbours <= 2:
+	case neighbours <= 2:
 		return IsolationMedium
-	case knownNeighbours <= 5:
+	case neighbours <= 5:
 		return IsolationLow
 	default:
 		return IsolationNone
 	}
-}
-
-// IsIsolated returns true when the port has at least medium isolation.
-func IsIsolated(p scanner.PortInfo, peers []scanner.PortInfo) bool {
-	return IsolationFor(p, peers) >= IsolationMedium
 }
